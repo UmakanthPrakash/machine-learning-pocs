@@ -1,0 +1,76 @@
+---
+title: "KNN with R"
+author: "Umakanth Prakash"
+output: pdf_document
+---
+
+```{r}
+# Load necessary libraries
+library(caret)
+library(ggplot2)
+
+# E1: Load the iris dataset and select only entries of the classes "iris virginica" or "iris versicolor"
+# Load the dataset
+iris <- read.csv('iris.csv')
+
+colnames(iris)
+
+# Filter the dataset to only include "virginica" and "versicolor"
+iris_filtered <- iris[iris$Species %in% c("virginica", "versicolor"), ]
+
+# Ensure that the species column is a factor
+iris_filtered$Species <- as.factor(iris_filtered$Species)
+
+# Separate features (X) and labels (y)
+X <- iris_filtered[, 1:4]
+y <- iris_filtered$Species
+y <- as.factor(iris_filtered$Species)
+
+# Check the levels of y
+print(levels(y))  # Should show "virginica" and "versicolor"
+
+# Check the number of data points in y
+print(length(y))  # Should show a number greater than 1
+
+# E2: Use kNN with K=5 and a train-test-split of 70-30
+# Split the data into training and testing sets
+set.seed(42)
+train_index <- createDataPartition(y, p = 0.7, list = FALSE)
+X_train <- X[train_index, ]
+X_test <- X[-train_index, ]
+y_train <- y[train_index]
+y_test <- y[-train_index]
+
+# Train the kNN model with K=5
+knn_model <- knn3Train(X_train, X_test, y_train, k = 5)
+
+# Calculate accuracy
+accuracy <- mean(knn_model == y_test)
+print(paste("Accuracy with K=5:", accuracy))
+
+# E3: Use extensive search to identify a good k and visualize the accuracy
+# Try different values of k
+k_values <- 1:30
+accuracies <- sapply(k_values, function(k) {
+    knn_model <- knn3Train(X_train, X_test, y_train, k = k)
+    mean(knn_model == y_test)
+})
+
+# Plot the accuracy for different k values
+ggplot(data.frame(k = k_values, Accuracy = accuracies), aes(x = k, y = Accuracy)) +
+    geom_line() +
+    geom_point() +
+    ggtitle("Accuracy vs. k Value") +
+    xlab("k") +
+    ylab("Accuracy") +
+    theme_minimal()
+
+# Explain the choice of a good k
+# The best k is the one that maximizes accuracy. From the plot, we can choose the k with the highest accuracy.
+best_k <- k_values[which.max(accuracies)]
+print(paste("Best k value:", best_k, "with accuracy:", max(accuracies)))
+
+# Discuss the impact of different distance metrics
+# The distance metric can significantly impact kNN performance. Common metrics include Euclidean, Manhattan, and Minkowski.
+# Euclidean is the default and works well for most cases, but Manhattan can be better for high-dimensional data.
+```
