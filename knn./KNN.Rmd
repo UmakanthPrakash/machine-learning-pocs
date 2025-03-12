@@ -4,6 +4,128 @@ author: "Umakanth Prakash"
 output: pdf_document
 ---
 
+
+```{r}
+# Load required libraries
+library(readr)
+library(dplyr)
+library(caret)
+library(class)
+library(ggplot2)
+library(FNN)  # For advanced KNN with different distance metrics
+
+# Read the iris dataset
+iris_data <- read.csv('iris.csv')
+head(iris_data)
+unique(iris_data$Species)
+
+# Filter for only virginica and versicolor species
+iris_filtered <- iris_data %>% 
+  filter(Species %in% c('virginica', 'versicolor'))
+
+# Split into features and target variable
+X <- iris_filtered %>% select(-Species)
+y <- iris_filtered$Species
+
+# Create a data frame to hold k values and accuracies
+results <- data.frame(k = integer(), 
+                     metric = character(), 
+                     accuracy = numeric(), 
+                     stringsAsFactors = FALSE)
+
+# Set seed for reproducibility
+set.seed(1)
+
+# Perform train-test split (70-30)
+train_indices <- createDataPartition(y, p = 0.7, list = FALSE)
+X_train <- X[train_indices, ]
+X_test <- X[-train_indices, ]
+y_train <- y[train_indices]
+y_test <- y[-train_indices]
+
+# Initial model with k=5
+knn_pred <- knn(train = X_train, 
+                test = X_test, 
+                cl = y_train, 
+                k = 5)
+
+# Calculate accuracy
+accuracy <- sum(knn_pred == y_test) / length(y_test)
+cat(sprintf("Accuracy with K=5: %.2f\n", accuracy))
+
+# Function to perform cross-validation with different distance metrics
+calculate_knn_accuracy <- function(k_value, x_data, y_data, distance_metric, p_val = 2) {
+  # Create 5-fold cross-validation indices
+  folds <- createFolds(y_data, k = 5, list = TRUE, returnTrain = FALSE)
+  
+  accuracies <- numeric(length(folds))
+  
+  for (i in seq_along(folds)) {
+    test_indices <- folds[[i]]
+    train_indices <- setdiff(seq_along(y_data), test_indices)
+    
+    x_train <- x_data[train_indices, ]
+    y_train <- y_data[train_indices]
+    x_test <- x_data[test_indices, ]
+    y_test <- y_data[test_indices]
+    
+    # Using FNN package which supports all three distance metrics consistently
+    pred <- FNN::knn(train = x_train, 
+                     test = x_test, 
+                     cl = y_train, 
+                     k = k_value, 
+                     algorithm = "cover_tree",  # Different algorithm option in FNN
+                     p = if(distance_metric == "euclidean") 2 
+                         else if(distance_metric == "manhattan") 1 
+                         else p_val)  # p=3 for Minkowski
+    
+    accuracies[i] <- sum(pred == y_test) / length(y_test)
+  }
+  
+  return(mean(accuracies))
+}
+
+# Perform cross-validation for k values from 1 to 30
+k_values <- 1:30
+
+for (k in k_values) {
+  # Euclidean distance (p=2)
+  euclidean_acc <- calculate_knn_accuracy(k, X, y, "euclidean")
+  results <- rbind(results, data.frame(k = k, metric = "Euclidean", accuracy = euclidean_acc))
+  
+  # Manhattan distance (p=1)
+  manhattan_acc <- calculate_knn_accuracy(k, X, y, "manhattan")
+  results <- rbind(results, data.frame(k = k, metric = "Manhattan", accuracy = manhattan_acc))
+  
+  # Minkowski distance with p=3
+  minkowski_acc <- calculate_knn_accuracy(k, X, y, "minkowski", p_val = 3)
+  results <- rbind(results, data.frame(k = k, metric = "Minkowski (p=3)", accuracy = minkowski_acc))
+}
+
+# Plot the results
+ggplot(results, aes(x = k, y = accuracy, color = metric, group = metric)) +
+  geom_line(size = 1) +
+  geom_point(size = 3) +
+  scale_color_manual(values = c("Euclidean" = "blue", "Manhattan" = "green", "Minkowski (p=3)" = "red")) +
+  labs(title = "Accuracy vs. k Value for Different Distance Metrics",
+       x = "k",
+       y = "Accuracy",
+       color = "Distance Metric") +
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_line(color = "lightgray"),
+    panel.grid.minor = element_line(color = "lightgray"),
+    legend.position = "right"
+  )
+
+
+```
+
+
+
+
+OLD BELOW PART
+
 ```{r}
 # Load necessary libraries
 library(caret)
@@ -74,3 +196,4 @@ print(paste("Best k value:", best_k, "with accuracy:", max(accuracies)))
 # The distance metric can significantly impact kNN performance. Common metrics include Euclidean, Manhattan, and Minkowski.
 # Euclidean is the default and works well for most cases, but Manhattan can be better for high-dimensional data.
 ```
+
