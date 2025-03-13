@@ -4,196 +4,81 @@ author: "Umakanth Prakash"
 output: pdf_document
 ---
 
-
 ```{r}
-# Load required libraries
-library(readr)
-library(dplyr)
-library(caret)
-library(class)
-library(ggplot2)
-library(FNN)  # For advanced KNN with different distance metrics
-
-# Read the iris dataset
-iris_data <- read.csv('iris.csv')
-head(iris_data)
-unique(iris_data$Species)
-
-# Filter for only virginica and versicolor species
-iris_filtered <- iris_data %>% 
-  filter(Species %in% c('virginica', 'versicolor'))
-
-# Split into features and target variable
-X <- iris_filtered %>% select(-Species)
-y <- iris_filtered$Species
-
-# Create a data frame to hold k values and accuracies
-results <- data.frame(k = integer(), 
-                     metric = character(), 
-                     accuracy = numeric(), 
-                     stringsAsFactors = FALSE)
-
-# Set seed for reproducibility
-set.seed(1)
-
-# Perform train-test split (70-30)
-train_indices <- createDataPartition(y, p = 0.7, list = FALSE)
-X_train <- X[train_indices, ]
-X_test <- X[-train_indices, ]
-y_train <- y[train_indices]
-y_test <- y[-train_indices]
-
-# Initial model with k=5
-knn_pred <- knn(train = X_train, 
-                test = X_test, 
-                cl = y_train, 
-                k = 5)
-
-# Calculate accuracy
-accuracy <- sum(knn_pred == y_test) / length(y_test)
-cat(sprintf("Accuracy with K=5: %.2f\n", accuracy))
-
-# Function to perform cross-validation with different distance metrics
-calculate_knn_accuracy <- function(k_value, x_data, y_data, distance_metric, p_val = 2) {
-  # Create 5-fold cross-validation indices
-  folds <- createFolds(y_data, k = 5, list = TRUE, returnTrain = FALSE)
-  
-  accuracies <- numeric(length(folds))
-  
-  for (i in seq_along(folds)) {
-    test_indices <- folds[[i]]
-    train_indices <- setdiff(seq_along(y_data), test_indices)
-    
-    x_train <- x_data[train_indices, ]
-    y_train <- y_data[train_indices]
-    x_test <- x_data[test_indices, ]
-    y_test <- y_data[test_indices]
-    
-    # Using FNN package which supports all three distance metrics consistently
-    pred <- FNN::knn(train = x_train, 
-                     test = x_test, 
-                     cl = y_train, 
-                     k = k_value, 
-                     algorithm = "cover_tree",  # Different algorithm option in FNN
-                     p = if(distance_metric == "euclidean") 2 
-                         else if(distance_metric == "manhattan") 1 
-                         else p_val)  # p=3 for Minkowski
-    
-    accuracies[i] <- sum(pred == y_test) / length(y_test)
-  }
-  
-  return(mean(accuracies))
-}
-
-# Perform cross-validation for k values from 1 to 30
-k_values <- 1:30
-
-for (k in k_values) {
-  # Euclidean distance (p=2)
-  euclidean_acc <- calculate_knn_accuracy(k, X, y, "euclidean")
-  results <- rbind(results, data.frame(k = k, metric = "Euclidean", accuracy = euclidean_acc))
-  
-  # Manhattan distance (p=1)
-  manhattan_acc <- calculate_knn_accuracy(k, X, y, "manhattan")
-  results <- rbind(results, data.frame(k = k, metric = "Manhattan", accuracy = manhattan_acc))
-  
-  # Minkowski distance with p=3
-  minkowski_acc <- calculate_knn_accuracy(k, X, y, "minkowski", p_val = 3)
-  results <- rbind(results, data.frame(k = k, metric = "Minkowski (p=3)", accuracy = minkowski_acc))
-}
-
-# Plot the results
-ggplot(results, aes(x = k, y = accuracy, color = metric, group = metric)) +
-  geom_line(size = 1) +
-  geom_point(size = 3) +
-  scale_color_manual(values = c("Euclidean" = "blue", "Manhattan" = "green", "Minkowski (p=3)" = "red")) +
-  labs(title = "Accuracy vs. k Value for Different Distance Metrics",
-       x = "k",
-       y = "Accuracy",
-       color = "Distance Metric") +
-  theme_minimal() +
-  theme(
-    panel.grid.major = element_line(color = "lightgray"),
-    panel.grid.minor = element_line(color = "lightgray"),
-    legend.position = "right"
-  )
-
-
-```
-
-
-
-
-OLD BELOW PART
-
-```{r}
-# Load necessary libraries
 library(caret)
 library(ggplot2)
+library(plotly)
 
-# E1: Load the iris dataset and select only entries of the classes "iris virginica" or "iris versicolor"
-# Load the dataset
+
 iris <- read.csv('iris.csv')
 
-colnames(iris)
+print(head(iris))
+print(unique(iris$Species))
 
-# Filter the dataset to only include "virginica" and "versicolor"
+
 iris_filtered <- iris[iris$Species %in% c("virginica", "versicolor"), ]
 
-# Ensure that the species column is a factor
-iris_filtered$Species <- as.factor(iris_filtered$Species)
-
-# Separate features (X) and labels (y)
 X <- iris_filtered[, 1:4]
 y <- iris_filtered$Species
-y <- as.factor(iris_filtered$Species)
 
-# Check the levels of y
-print(levels(y))  # Should show "virginica" and "versicolor"
-
-# Check the number of data points in y
-print(length(y))  # Should show a number greater than 1
-
-# E2: Use kNN with K=5 and a train-test-split of 70-30
-# Split the data into training and testing sets
-set.seed(42)
+# Lets split the data into training and testing sets
+set.seed(1)
 train_index <- createDataPartition(y, p = 0.7, list = FALSE)
 X_train <- X[train_index, ]
 X_test <- X[-train_index, ]
 y_train <- y[train_index]
 y_test <- y[-train_index]
 
-# Train the kNN model with K=5
-knn_model <- knn3Train(X_train, X_test, y_train, k = 5)
-
-# Calculate accuracy
-accuracy <- mean(knn_model == y_test)
-print(paste("Accuracy with K=5:", accuracy))
-
-# E3: Use extensive search to identify a good k and visualize the accuracy
-# Try different values of k
 k_values <- 1:30
-accuracies <- sapply(k_values, function(k) {
-    knn_model <- knn3Train(X_train, X_test, y_train, k = k)
-    mean(knn_model == y_test)
-})
 
-# Plot the accuracy for different k values
-ggplot(data.frame(k = k_values, Accuracy = accuracies), aes(x = k, y = Accuracy)) +
-    geom_line() +
-    geom_point() +
-    ggtitle("Accuracy vs. k Value") +
-    xlab("k") +
-    ylab("Accuracy") +
-    theme_minimal()
+accuracies <- c()
 
-# Explain the choice of a good k
-# The best k is the one that maximizes accuracy. From the plot, we can choose the k with the highest accuracy.
-best_k <- k_values[which.max(accuracies)]
-print(paste("Best k value:", best_k, "with accuracy:", max(accuracies)))
+# doing cross validation for each k
+for (k in k_values) {
+  # Here we are training the model
+  knn_model <- knn3Train(X_train, X_test, y_train, k = k)
+  
+  # and we will calculate the accuracy
+  accuracy <- mean(knn_model == y_test)
+  accuracies <- c(accuracies, accuracy)
+}
 
-# Discuss the impact of different distance metrics
-# The distance metric can significantly impact kNN performance. Common metrics include Euclidean, Manhattan, and Minkowski.
-# Euclidean is the default and works well for most cases, but Manhattan can be better for high-dimensional data.
+# Now we will plot the accuracy vs k values
+plot_data <- data.frame(
+  k = k_values,
+  Accuracy = accuracies
+)
+
+plot <- ggplot(plot_data, aes(x = k, y = Accuracy)) +
+  geom_line(color = "blue") +
+  geom_point(color = "red") +
+  labs(title = "Accuracy vs. k Value (Euclidean Distance)", x = "k", y = "Accuracy") +
+  theme_minimal()
+
+# using plotly for interactive plot
+interactive_plot <- ggplotly(plot)
+
+interactive_plot
+
+# We will use the k value 5 to train the model
+best_k <- 5
+final_knn_model <- knn3Train(X_train, X_test, y_train, k = best_k)
+
+# lets make prediction on our test set
+y_pred <- final_knn_model
+
+y_pred <- factor(y_pred, levels = levels(y_test))
+
+# generating the confusion matrix
+conf_matrix <- table(Predicted = y_pred, Actual = y_test)
+print("Confusion Matrix:")
+print(conf_matrix)
+
+# calculating the accuracy once again
+accuracy <- mean(y_pred == y_test)
+print(paste("Accuracy with k =", best_k, ":", accuracy))
+
+
 ```
+
 
