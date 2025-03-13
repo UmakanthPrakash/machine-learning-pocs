@@ -1,8 +1,266 @@
 ---
 title: "KNN with R"
 author: "Umakanth Prakash"
-output: pdf_document
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
 ---
+
+```{r}
+
+# Load required libraries
+library(tidyverse)  # For data manipulation and visualization
+library(caret)      # For data splitting and cross-validation
+
+# Read the iris dataset
+iris_data <- read.csv('iris.csv')
+head(iris_data)
+unique(iris_data$Species)
+
+# Filter for only virginica and versicolor species
+iris_filtered <- iris_data %>% 
+  filter(Species %in% c('virginica', 'versicolor'))
+
+# Convert Species to a factor variable
+iris_filtered$Species <- factor(iris_filtered$Species)
+
+# Split features and target
+X <- iris_filtered %>% select(-Species)
+y <- iris_filtered$Species
+
+# Set seed for reproducibility
+set.seed(1)
+
+# Function to calculate Minkowski distance
+minkowski_distance <- function(a, b, p) {
+  sum(abs(a - b)^p)^(1/p)
+}
+
+# Function to calculate Manhattan distance
+manhattan_distance <- function(a, b) {
+  sum(abs(a - b))
+}
+
+# Function to calculate Euclidean distance
+euclidean_distance <- function(a, b) {
+  sqrt(sum((a - b)^2))
+}
+
+# KNN function that allows different distance metrics
+my_knn <- function(train_data, train_labels, test_data, k, distance_metric = "euclidean", p = 3) {
+  predictions <- vector("character", nrow(test_data))
+  
+  for (i in 1:nrow(test_data)) {
+    test_instance <- as.numeric(test_data[i, ])
+    distances <- numeric(nrow(train_data))
+    
+    # Calculate distances using the specified metric
+    for (j in 1:nrow(train_data)) {
+      train_instance <- as.numeric(train_data[j, ])
+      
+      if (distance_metric == "euclidean") {
+        distances[j] <- euclidean_distance(test_instance, train_instance)
+      } else if (distance_metric == "manhattan") {
+        distances[j] <- manhattan_distance(test_instance, train_instance)
+      } else if (distance_metric == "minkowski") {
+        distances[j] <- minkowski_distance(test_instance, train_instance, p)
+      }
+    }
+    
+    # Find k nearest neighbors
+    sorted_indices <- order(distances)
+    k_nearest_indices <- sorted_indices[1:k]
+    k_nearest_labels <- train_labels[k_nearest_indices]
+    
+    # Predict based on majority vote
+    predictions[i] <- names(sort(table(k_nearest_labels), decreasing = TRUE))[1]
+  }
+  
+  return(predictions)
+}
+
+# Function to perform cross-validation
+cross_validation <- function(data, labels, k_value, n_folds = 5, distance_metric = "euclidean", p = 3) {
+  # Create folds
+  set.seed(42)
+  folds <- createFolds(labels, k = n_folds, list = TRUE, returnTrain = FALSE)
+  
+  accuracies <- numeric(n_folds)
+  
+  for (i in 1:n_folds) {
+    test_indices <- folds[[i]]
+    train_indices <- setdiff(1:length(labels), test_indices)
+    
+    train_data <- data[train_indices, ]
+    train_labels <- labels[train_indices]
+    test_data <- data[test_indices, ]
+    test_labels <- labels[test_indices]
+    
+    predictions <- my_knn(train_data, train_labels, test_data, k_value, distance_metric, p)
+    
+    # Calculate accuracy
+    accuracies[i] <- sum(predictions == test_labels) / length(test_labels)
+  }
+  
+  return(mean(accuracies))
+}
+
+# Evaluate different k values and distance metrics
+k_values <- 1:30
+results <- data.frame()
+
+for (k in k_values) {
+  cat("Processing k =", k, "\n")
+  
+  # Euclidean distance
+  euclidean_acc <- cross_validation(X, y, k, distance_metric = "euclidean")
+  results <- rbind(results, data.frame(k = k, metric = "Euclidean", accuracy = euclidean_acc))
+  
+  # Manhattan distance
+  manhattan_acc <- cross_validation(X, y, k, distance_metric = "manhattan")
+  results <- rbind(results, data.frame(k = k, metric = "Manhattan", accuracy = manhattan_acc))
+  
+  # Minkowski distance with p=3
+  minkowski_acc <- cross_validation(X, y, k, distance_metric = "minkowski", p = 3)
+  results <- rbind(results, data.frame(k = k, metric = "Minkowski (p=3)", accuracy = minkowski_acc))
+}
+
+
+# Plot results
+ggplot(results, aes(x = k, y = accuracy, color = metric, group = metric)) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  scale_color_manual(values = c("Euclidean" = "blue", "Manhattan" = "green", "Minkowski (p=3)" = "red")) +
+  labs(title = "Accuracy vs. k Value for Different Distance Metrics",
+       x = "k",
+       y = "Accuracy",
+       color = "Distance Metric") +
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_line(color = "lightgray"),
+    panel.grid.minor = element_line(color = "lightgray")
+  )
+
+```
+
+```{r}
+
+# Load required libraries
+library(readr)
+library(dplyr)
+library(caret)
+library(class)
+library(ggplot2)
+library(FNN)  # For advanced KNN with different distance metrics
+
+# Read the iris dataset
+iris_data <- read.csv('iris.csv')
+head(iris_data)
+unique(iris_data$Species)
+
+# Filter for only virginica and versicolor species
+iris_filtered <- iris_data %>% 
+  filter(Species %in% c('virginica', 'versicolor'))
+
+# Split into features and target variable
+X <- iris_filtered %>% select(-Species)
+y <- iris_filtered$Species
+
+# Create a data frame to hold k values and accuracies
+results <- data.frame(k = integer(), 
+                     metric = character(), 
+                     accuracy = numeric(), 
+                     stringsAsFactors = FALSE)
+
+# Set seed for reproducibility
+set.seed(1)
+
+# Perform train-test split (70-30)
+train_indices <- createDataPartition(y, p = 0.7, list = FALSE)
+X_train <- X[train_indices, ]
+X_test <- X[-train_indices, ]
+y_train <- y[train_indices]
+y_test <- y[-train_indices]
+
+# Initial model with k=5
+knn_pred <- knn(train = X_train, 
+                test = X_test, 
+                cl = y_train, 
+                k = 5)
+
+# Calculate accuracy
+accuracy <- sum(knn_pred == y_test) / length(y_test)
+cat(sprintf("Accuracy with K=5: %.2f\n", accuracy))
+
+# Function to perform cross-validation with different distance metrics
+calculate_knn_accuracy <- function(k_value, x_data, y_data, distance_metric, p_val = 2) {
+  # Create 5-fold cross-validation indices
+  folds <- createFolds(y_data, k = 5, list = TRUE, returnTrain = FALSE)
+  
+  accuracies <- numeric(length(folds))
+  
+  for (i in seq_along(folds)) {
+    test_indices <- folds[[i]]
+    train_indices <- setdiff(seq_along(y_data), test_indices)
+    
+    x_train <- x_data[train_indices, ]
+    y_train <- y_data[train_indices]
+    x_test <- x_data[test_indices, ]
+    y_test <- y_data[test_indices]
+    
+    # Using FNN package which supports all three distance metrics consistently
+    pred <- FNN::knn(train = x_train, 
+                     test = x_test, 
+                     cl = y_train, 
+                     k = k_value, 
+                     algorithm = "cover_tree",  # Different algorithm option in FNN
+                     p = if(distance_metric == "euclidean") 2 
+                         else if(distance_metric == "manhattan") 1 
+                         else p_val)  # p=3 for Minkowski
+    
+    accuracies[i] <- sum(pred == y_test) / length(y_test)
+  }
+  
+  return(mean(accuracies))
+}
+
+# Perform cross-validation for k values from 1 to 30
+k_values <- 1:30
+
+for (k in k_values) {
+  # Euclidean distance (p=2)
+  euclidean_acc <- calculate_knn_accuracy(k, X, y, "euclidean")
+  results <- rbind(results, data.frame(k = k, metric = "Euclidean", accuracy = euclidean_acc))
+  
+  # Manhattan distance (p=1)
+  manhattan_acc <- calculate_knn_accuracy(k, X, y, "manhattan")
+  results <- rbind(results, data.frame(k = k, metric = "Manhattan", accuracy = manhattan_acc))
+  
+  # Minkowski distance with p=3
+  minkowski_acc <- calculate_knn_accuracy(k, X, y, "minkowski", p_val = 3)
+  results <- rbind(results, data.frame(k = k, metric = "Minkowski (p=3)", accuracy = minkowski_acc))
+}
+
+# Plot the results
+ggplot(results, aes(x = k, y = accuracy, color = metric, group = metric)) +
+  geom_line(size = 1) +
+  geom_point(size = 3) +
+  scale_color_manual(values = c("Euclidean" = "blue", "Manhattan" = "green", "Minkowski (p=3)" = "red")) +
+  labs(title = "Accuracy vs. k Value for Different Distance Metrics",
+       x = "k",
+       y = "Accuracy",
+       color = "Distance Metric") +
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_line(color = "lightgray"),
+    panel.grid.minor = element_line(color = "lightgray"),
+    legend.position = "right"
+  )
+
+```
+
+
 
 ```{r}
 library(caret)
@@ -82,3 +340,4 @@ print(paste("Accuracy with k =", best_k, ":", accuracy))
 ```
 
 
+using reference https://anderfernandez.com/en/blog/code-knn-in-r/
