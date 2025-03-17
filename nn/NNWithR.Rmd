@@ -1,1 +1,274 @@
+---
+title: "NNWithR"
+output: pdf_document
+date: "2025-03-16"
+---
 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Homework 3: Neural Networks with R
+# Part 1 - Neural Networks using the neuralnet package
+
+# Install required packages if not already installed
+# install.packages("neuralnet")
+# install.packages("caret")
+# install.packages("readr")
+# install.packages("dplyr")
+
+# Load necessary libraries
+```{r}
+library(neuralnet)
+library(caret)
+library(readr)
+library(dplyr)
+```
+# 1. Data loading & cleaning
+# Load the Breast Cancer Wisconsin dataset
+
+# The dataset has no header, so we add column names
+
+```{r}
+column_names <- c("ID", "Diagnosis", 
+                  paste0("Mean", 1:10), 
+                  paste0("SE", 1:10), 
+                  paste0("Worst", 1:10))
+
+wdbc <- read.csv("wdbc.data", header = FALSE, col.names = column_names)
+
+```
+# Alternative method if you don't have the file locally
+# wdbc_url <- "https://archive.ics.uci.edu/ml/machine-learning-databases/breast-cancer-wisconsin/wdbc.data"
+# wdbc <- read.csv(wdbc_url, header = FALSE, col.names = column_names)
+
+# Display the structure of the dataset
+
+```{r}
+str(wdbc)
+```
+
+# According to the homework, we need to:
+# 1. Use only the "worst-features" (suffix "3" in the homework, but "Worst" in our naming)
+# 2. Remove the others (Mean and SE)
+# 3. Normalize the data using min-max scaling
+
+# Select only the ID, Diagnosis, and Worst features
+
+```{r}
+wdbc_worst <- wdbc[, c("ID", "Diagnosis", paste0("Worst", 1:10))]
+```
+
+# Convert Diagnosis to a factor with explicit levels
+
+```{r}
+wdbc_worst$Diagnosis <- factor(wdbc_worst$Diagnosis, levels = c("B", "M"))
+
+# Remove ID column as it's not needed for modeling
+wdbc_worst$ID <- NULL
+
+# Normalize the worst features using min-max scaling
+# Keep the Diagnosis column as is
+features_to_normalize <- paste0("Worst", 1:10)
+wdbc_normalized <- wdbc_worst
+
+# Apply min-max scaling to each feature
+for (col in features_to_normalize) {
+  wdbc_normalized[[col]] <- (wdbc_worst[[col]] - min(wdbc_worst[[col]])) / 
+                           (max(wdbc_worst[[col]]) - min(wdbc_worst[[col]]))
+}
+
+# Verify the normalization (values should be between 0 and 1)
+summary(wdbc_normalized[, features_to_normalize])
+```
+
+
+# 2. Hyperparameters & training
+# We need to find a good MLP architecture with:
+# - 1 to 2 hidden layers
+# - 2 to 5 neurons in the hidden layers
+# - Cross-entropy as the error function
+
+# First, let's create stratified train-validation (80%) and test (20%) sets
+```{r}
+set.seed(123) # For reproducibility
+train_index <- createDataPartition(wdbc_normalized$Diagnosis, p = 0.8, list = FALSE)
+train_val_data <- wdbc_normalized[train_index, ]
+test_data <- wdbc_normalized[-train_index, ]
+
+# Prepare the formula for the neural network
+# For classification with cross-entropy, we need to create dummy variables for the target
+# Create a formula for the neural network
+formula <- as.formula(paste("Diagnosis ~ ", paste(features_to_normalize, collapse = " + ")))
+
+# Define the hyperparameter combinations
+# Single hidden layer options: 2, 3, 4, 5 neurons
+# Two hidden layer options: all combinations of 2, 3, 4, 5 neurons in each layer
+hidden_layers <- list(
+  c(2), c(3), c(4), c(5),
+  c(2, 2), c(3, 2), c(4, 2), c(5, 2),
+  c(2, 3), c(3, 3), c(4, 3), c(5, 3),
+  c(2, 4), c(3, 4), c(4, 4), c(5, 4),
+  c(2, 5), c(3, 5), c(4, 5), c(5, 5)
+)
+
+# Prepare for 5-fold stratified cross-validation
+set.seed(456)
+folds <- createFolds(train_val_data$Diagnosis, k = 5, list = TRUE, returnTrain = FALSE)
+
+# Function to calculate cross-entropy loss
+cross_entropy <- function(actual, predicted) {
+  # Convert factor to numeric for calculation
+  actual_numeric <- as.numeric(actual) - 1  # B becomes 0, M becomes 1
+  
+  # Clip predicted values to avoid log(0)
+  predicted <- pmax(pmin(predicted, 0.9999), 0.0001)
+  
+  # Calculate cross-entropy
+  -mean(actual_numeric * log(predicted) + (1 - actual_numeric) * log(1 - predicted))
+}
+
+# Store results
+results <- data.frame(
+  hidden_layers = character(),
+  validation_loss = numeric(),
+  stringsAsFactors = FALSE
+)
+
+# Perform cross-validation for each hyperparameter combination
+for (hidden in hidden_layers) {
+  cat("Testing hidden layers:", paste(hidden, collapse=","), "\n")
+  
+  # Initialize validation loss for this configuration
+  val_losses <- numeric(length(folds))
+  
+  # Perform 5-fold cross-validation
+  for (i in 1:length(folds)) {
+    # Create training and validation sets for this fold
+    val_indices <- folds[[i]]
+    fold_train <- train_val_data[-val_indices, ]
+    fold_val <- train_val_data[val_indices, ]
+    
+    # Train the neural network
+    # We use linear.output=FALSE for classification
+    # We use robust learner strategies to avoid non-convergence
+    tryCatch({
+      nn <- neuralnet(
+        formula,
+        data = fold_train,
+        hidden = hidden,
+        linear.output = FALSE,
+        err.fct = "ce",  # Cross-entropy error function
+        act.fct = "logistic",  # Logistic activation function
+        lifesign = "minimal",
+        stepmax = 1e+06,  # Increase if needed
+        rep = 1,
+        algorithm = "rprop+",  # Resilient backpropagation with weight backtracking
+        threshold = 0.01
+      )
+      
+      # Predict on validation set
+      pred <- compute(nn, fold_val[, features_to_normalize])
+      
+      # Calculate validation loss
+      val_losses[i] <- cross_entropy(fold_val$Diagnosis, pred$net.result)
+    }, error = function(e) {
+      cat("Error in fold", i, ":", e$message, "\n")
+      val_losses[i] <- NA  # Mark as failed
+    })
+  }
+  
+  # Calculate average validation loss across folds
+  avg_val_loss <- mean(val_losses, na.rm = TRUE)
+  
+  # Store results
+  results <- rbind(results, data.frame(
+    hidden_layers = paste(hidden, collapse=","),
+    validation_loss = avg_val_loss,
+    stringsAsFactors = FALSE
+  ))
+  
+  cat("Average validation loss:", avg_val_loss, "\n\n")
+}
+
+# Print results sorted by validation loss
+results_sorted <- results[order(results$validation_loss), ]
+print(results_sorted)
+
+# Get the best hyperparameter combination
+best_hidden <- eval(parse(text = paste("c(", results_sorted$hidden_layers[1], ")")))
+cat("Best hidden layer configuration:", paste(best_hidden, collapse=","), "\n")
+```
+
+
+# 3. Determine test error
+# Train the best model on the entire training set
+
+```{r}
+set.seed(789)
+best_model <- neuralnet(
+  formula,
+  data = train_val_data,
+  hidden = best_hidden,
+  linear.output = FALSE,
+  err.fct = "ce",
+  act.fct = "logistic",
+  lifesign = "minimal",
+  stepmax = 1e+06,
+  rep = 1,
+  algorithm = "rprop+"
+)
+
+# Calculate test error
+test_pred <- compute(best_model, test_data[, features_to_normalize])
+test_loss <- cross_entropy(test_data$Diagnosis, test_pred$net.result)
+cat("Test loss:", test_loss, "\n")
+
+# Create confusion matrix
+# Convert probabilities to predicted classes
+test_pred_class <- ifelse(test_pred$net.result > 0.5, "M", "B")
+test_pred_class <- factor(test_pred_class, levels = c("B", "M"))
+conf_matrix <- confusionMatrix(test_pred_class, test_data$Diagnosis)
+print(conf_matrix)
+```
+
+
+# 4. Visualization
+# Plot the neural network
+```{r}
+plot(best_model, rep = "best")
+
+# 5. Discussion on overfitting
+# This section is a text explanation to be included in the report
+# It will discuss overfitting in neural networks, how to spot it, and
+# methods to prevent it from happening.
+overfitting_discussion <- "
+## Discussion on Overfitting in Neural Networks
+
+### What is overfitting?
+Overfitting occurs when a neural network learns the training data too well, capturing noise and specific patterns that don't generalize to new, unseen data. This results in a model that performs excellently on training data but poorly on validation or test data.
+
+### How to spot overfitting:
+1. **Training vs. Validation Performance Gap**: A significant indicator of overfitting is when the training error continues to decrease while the validation error starts to increase.
+2. **Performance Metrics**: If accuracy on the training set is much higher than on the validation set, overfitting is likely occurring.
+3. **Complex Models**: Models with too many parameters relative to the amount of training data are more prone to overfitting.
+4. **Unstable Predictions**: Slight changes in the input data lead to drastically different predictions.
+
+### Methods to prevent overfitting:
+1. **Early Stopping**: Monitor validation error during training and stop when it starts to increase.
+2. **Regularization**: 
+   - L1 and L2 regularization add penalties to the loss function based on weight magnitudes.
+   - Dropout randomly deactivates neurons during training to prevent co-adaptation.
+3. **Data Augmentation**: Artificially increase the training set size by creating modified versions of existing data.
+4. **Cross-Validation**: Use techniques like k-fold cross-validation to ensure the model generalizes well.
+5. **Reduce Model Complexity**: Decrease the number of hidden layers or neurons.
+6. **Ensemble Methods**: Combine multiple models to reduce variance and improve generalization.
+7. **Batch Normalization**: Normalize the inputs of each layer to stabilize the learning process.
+8. **Weight Decay**: Gradually reduce the magnitude of weights during training.
+
+In this homework, we used cross-validation to find the best hyperparameters and evaluate our model's performance, which helps mitigate overfitting. We also carefully considered the model complexity by testing different numbers of hidden layers and neurons to find the optimal architecture for our dataset.
+"
+
+# Print the discussion
+cat(overfitting_discussion)
+```
